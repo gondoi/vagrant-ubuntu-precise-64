@@ -1,9 +1,29 @@
 #!/bin/bash
 
+exists() {
+  if command -v $1 &>/dev/null
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
 # make sure we have dependencies 
 hash mkisofs 2>/dev/null || { echo >&2 "ERROR: mkisofs not found.  Aborting."; exit 1; }
 
 BOX="ubuntu-precise-64"
+
+# what os are we running?
+OS=$(uname -s)
+
+# get the correct md5 tool
+if exists md5;
+then
+  MD5="md5 -r"
+else
+  MD5="md5sum"
+fi
 
 # location, location, location
 FOLDER_BASE=`pwd`
@@ -12,6 +32,7 @@ FOLDER_VBOX="${FOLDER_BUILD}/vbox"
 FOLDER_ISO="${FOLDER_BUILD}/iso"
 FOLDER_ISO_CUSTOM="${FOLDER_BUILD}/iso/custom"
 FOLDER_ISO_INITRD="${FOLDER_BUILD}/iso/initrd"
+FOLDER_ISO_MOUNT="${FOLDER_BUILD}/mount"
 
 # let's make sure they exist
 mkdir -p "${FOLDER_BUILD}"
@@ -26,34 +47,55 @@ mkdir -p "${FOLDER_ISO_CUSTOM}"
 chmod -R u+w "${FOLDER_ISO_INITRD}"
 rm -rf "${FOLDER_ISO_INITRD}"
 mkdir -p "${FOLDER_ISO_INITRD}"
+rm -rf "${FOLDER_ISO_MOUNT}"
+mkdir -p "${FOLDER_ISO_MOUNT}"
 
 ISO_URL="http://releases.ubuntu.com/precise/ubuntu-12.04-alternate-amd64.iso"
 ISO_FILENAME="${FOLDER_ISO}/`basename ${ISO_URL}`"
 ISO_MD5="9fcc322536575dda5879c279f0b142d7"
 INITRD_FILENAME="${FOLDER_ISO}/initrd.gz"
 
-ISO_GUESTADDITIONS="/Applications/VirtualBox.app/Contents/MacOS/VBoxGuestAdditions.iso"
+if [ "$OS" == "Linux" ];
+then
+  ISO_GUESTADDITIONS="/usr/share/virtualbox/VBoxGuestAdditions.iso"
+  CPIO="sudo cpio"
+elif [ "$OS" == "Darwin" ];
+then
+  ISO_GUESTADDITIONS="/Applications/VirtualBox.app/Contents/MacOS/VBoxGuestAdditions.iso"
+  CPIO="cpio"
+fi
 
 # download the installation disk if you haven't already or it is corrupted somehow
-echo "Downloading ubuntu-12.04-alternate-amd64.iso ..."
 if [ ! -e "${ISO_FILENAME}" ] 
 then
+   echo "Downloading ubuntu-12.04-alternate-amd64.iso ..."
    curl --output "${ISO_FILENAME}" -L "${ISO_URL}"
 else
   # make sure download is right...
-  ISO_HASH=`md5 -q "${ISO_FILENAME}"`
+  echo "Checking ISO hash ..."
+  ISO_HASH=`${MD5} "${ISO_FILENAME}" |awk {'print $1'}`
   if [ "${ISO_MD5}" != "${ISO_HASH}" ]; then
     echo "ERROR: MD5 does not match. Got ${ISO_HASH} instead of ${ISO_MD5}. Aborting."
     exit 1
   fi
+  echo "MD5 hash matches. Continuing ..."
 fi
 
 # customize it
 echo "Creating Custom ISO"
 if [ ! -e "${FOLDER_ISO}/custom.iso" ]; then
 
-  echo "Untarring downloaded ISO ..."
-  tar -C "${FOLDER_ISO_CUSTOM}" -xf "${ISO_FILENAME}"
+  echo "Extracting downloaded ISO ..."
+  if [ "$OS" == "Linux" ];
+  then
+    sudo mount -o loop ${ISO_FILENAME} ${FOLDER_ISO_MOUNT}
+    sudo cp -r ${FOLDER_ISO_MOUNT}/* ${FOLDER_ISO_CUSTOM}
+    sudo umount ${FOLDER_ISO_MOUNT}
+    sudo chown -R ${USER}:${USER} ${FOLDER_ISO_CUSTOM}
+  elif [ "$OS" == "Darwin" ];
+  then
+    tar -C "${FOLDER_ISO_CUSTOM}" -xf "${ISO_FILENAME}"
+  fi
 
   # backup initrd.gz
   echo "Backing up current init.rd ..."
@@ -63,11 +105,11 @@ if [ ! -e "${FOLDER_ISO}/custom.iso" ]; then
   # stick in our new initrd.gz
   echo "Installing new initrd.gz ..."
   cd "${FOLDER_ISO_INITRD}"
-  gunzip -c "${FOLDER_ISO_CUSTOM}/install/initrd.gz.org" | cpio -id
+  gunzip -c "${FOLDER_ISO_CUSTOM}/install/initrd.gz.org" | ${CPIO} -id
   cd "${FOLDER_BASE}"
   cp preseed.cfg "${FOLDER_ISO_INITRD}/preseed.cfg"
   cd "${FOLDER_ISO_INITRD}"
-  find . | cpio --create --format='newc' | gzip  > "${FOLDER_ISO_CUSTOM}/install/initrd.gz"
+  find . | ${CPIO} --create --format='newc' | gzip  > "${FOLDER_ISO_CUSTOM}/install/initrd.gz"
 
   # clean up permissions
   echo "Cleaning up Permissions ..."
@@ -146,7 +188,8 @@ if ! VBoxManage showvminfo "${BOX}" >/dev/null 2>/dev/null; then
     --type hdd \
     --medium "${FOLDER_VBOX}/${BOX}/${BOX}.vdi"
 
-  VBoxManage startvm "${BOX}"
+  VBoxManage startvm "${BOX}" \
+    --type headless
 
   echo -n "Waiting for installer to finish "
   while VBoxManage list runningvms | grep "${BOX}" >/dev/null; do
@@ -167,7 +210,8 @@ if ! VBoxManage showvminfo "${BOX}" >/dev/null 2>/dev/null; then
     --type dvddrive \
     --medium "${ISO_GUESTADDITIONS}"
 
-  VBoxManage startvm "${BOX}"
+  VBoxManage startvm "${BOX}" \
+    --type headless
 
   # get private key
   curl --output "${FOLDER_BUILD}/id_rsa" "https://raw.github.com/mitchellh/vagrant/master/keys/vagrant"
