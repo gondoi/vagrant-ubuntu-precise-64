@@ -37,7 +37,8 @@ FOLDER_ISO_MOUNT="${FOLDER_BUILD}/mount"
 # let's make sure they exist
 mkdir -p "${FOLDER_BUILD}"
 mkdir -p "${FOLDER_VBOX}"
-mkdir -p "${FOLDER_ISO}"
+mkdir -p "${FOLDER_ISO_CUSTOM}"
+mkdir -p "${FOLDER_ISO_INITRD}"
 
 # let's make sure they're empty
 echo "Cleaning Custom build directories..."
