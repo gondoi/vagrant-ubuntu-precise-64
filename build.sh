@@ -45,6 +45,10 @@ echo "Cleaning Custom build directories..."
 chmod -R u+w "${FOLDER_ISO_CUSTOM}"
 rm -rf "${FOLDER_ISO_CUSTOM}"
 mkdir -p "${FOLDER_ISO_CUSTOM}"
+if [ "$OS" == "Linux" ];
+then
+  sudo chown -R ${USER}:${USER} "${FOLDER_ISO_INITRD}"
+fi
 chmod -R u+w "${FOLDER_ISO_INITRD}"
 rm -rf "${FOLDER_ISO_INITRD}"
 mkdir -p "${FOLDER_ISO_INITRD}"
@@ -91,6 +95,7 @@ if [ ! -e "${FOLDER_ISO}/custom.iso" ]; then
   then
     sudo mount -o loop ${ISO_FILENAME} ${FOLDER_ISO_MOUNT}
     sudo cp -r ${FOLDER_ISO_MOUNT}/* ${FOLDER_ISO_CUSTOM}
+    sudo cp -r ${FOLDER_ISO_MOUNT}/.disk ${FOLDER_ISO_CUSTOM}
     sudo umount ${FOLDER_ISO_MOUNT}
     sudo chown -R ${USER}:${USER} ${FOLDER_ISO_CUSTOM}
   elif [ "$OS" == "Darwin" ];
@@ -191,6 +196,7 @@ if ! VBoxManage showvminfo "${BOX}" >/dev/null 2>/dev/null; then
 
   VBoxManage startvm "${BOX}" \
     --type headless
+#  VBoxHeadless --startvm "${BOX}" &
 
   echo -n "Waiting for installer to finish "
   while VBoxManage list runningvms | grep "${BOX}" >/dev/null; do
@@ -213,6 +219,7 @@ if ! VBoxManage showvminfo "${BOX}" >/dev/null 2>/dev/null; then
 
   VBoxManage startvm "${BOX}" \
     --type headless
+#  VBoxHeadless --startvm "${BOX}" &
 
   # get private key
   curl --output "${FOLDER_BUILD}/id_rsa" "https://raw.github.com/mitchellh/vagrant/master/keys/vagrant"
